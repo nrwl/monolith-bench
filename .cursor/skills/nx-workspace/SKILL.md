@@ -241,13 +241,11 @@ Example output:
       "shared-ui": {
         "name": "shared-ui",
         "type": "lib",
-        "data": { "root": "libs/shared-ui", "tags": ["type:ui"] }
+        "data": { "root": "packages/shared-ui", "tags": ["type:ui"] }
       }
     },
     "dependencies": {
-      "my-app": [
-        { "source": "my-app", "target": "shared-ui", "type": "static" }
-      ],
+      "my-app": [{ "source": "my-app", "target": "shared-ui", "type": "static" }],
       "shared-ui": []
     }
   }

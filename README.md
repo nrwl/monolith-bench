@@ -1,87 +1,226 @@
-# New Nx Repository
+# Nx React Repository
 
 <a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
 
-✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
+✨ A repository showcasing key [Nx](https://nx.dev) features for React monorepos ✨
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/docs/technologies/typescript/introduction?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+## 📊 Benchmark baseline
 
-🚀 If you haven't connected to Nx Cloud yet, [complete your setup here](https://cloud.nx.app/get-started). Get faster builds with remote caching, distributed task execution, and self-healing CI. [See how your workspace can benefit](#nx-cloud).
+This repository is the **baseline** for the Nx caching and distributed task execution benchmark.
+CI here runs one target per VM with no distribution, so each job's wall time measures the work
+done on a single machine.
 
-## Generate a library
+The optimized counterpart, which runs the same workload through Nx Cloud agents, lives at
+[nrwl/cache-dte-bench-2](https://github.com/nrwl/cache-dte-bench-2). See that repository for
+more information about the benchmark and its results.
 
-```sh
-npx nx g @nx/js:lib packages/pkg1 --publishable --importPath=@my-org/pkg1
+**Monolith.** The workspace has a single project, `shop`, plus the root project that
+holds the `validate` target. There are no libraries: all code lives in the app's source tree
+(`apps/shop/src`), organized by folder and imported file-to-file with relative paths (no
+barrel `index.ts` files), and the Playwright specs live in the same project (`apps/shop/e2e`).
+
+Nx Cloud is disabled (`neverConnectToCloud` in `nx.json`, `NX_NO_CLOUD` in CI), so there is
+no remote caching and no distribution.
+
+## 📦 Project Overview
+
+This repository demonstrates a production-ready React monorepo with:
+
+- **1 Application**
+
+  - `shop` - React e-commerce application with product listings and detail views. The
+    product pages (`/products`) fetch from `http://localhost:3333/api`, which this workspace
+    does not include, so they render an error state. The benchmarked `/features/*` pages need
+    no backend.
+
+- **Handwritten code** in `apps/shop/src`:
+
+  - `features/products`, `features/product-detail` - Product listing and detail pages
+  - `hooks` - Data-fetching hooks (`use-products`, `use-product`)
+  - `components/shared` - Shared UI components (product card/grid, spinner, error message)
+  - `models` - Shared data models
+  - `test-utils` - Shared testing utilities
+
+- **E2E Testing**
+  - `apps/shop/e2e` - Playwright tests, run by the `e2e` / `e2e-ci` targets of `shop`
+
+- **Generated code** (~300k lines of TypeScript in `apps/shop/src`)
+
+  - `features/<domain>/<kind>/` - 300 features (30 domains x 10 kinds), each mounted at `/features/<domain>-<kind>`
+  - `components/<group>/<kind>/` - 130 UI components (13 groups x 10 kinds)
+  - `utils/<group>/` - 70 utilities (7 groups x 10 kinds)
+  - `apps/shop/e2e/features/*.spec.ts` - 100 Playwright specs sampled evenly across the features (1 test each)
+
+  Every e2e spec imports the route and item count of the feature it exercises straight from its source files.
+  Each generated e2e test spends `E2E_TEST_DURATION_MS` (default 25000ms) waiting and
+  `E2E_TEST_CPU_SECONDS` (default 2s) computing, interleaved across `E2E_TEST_BLOCKS`
+  (default 10) rounds, see `apps/shop/e2e/support/pacing.ts`. That is ~27s per test,
+  of which ~7% scales with hardware, matching real Playwright being mostly wait-bound.
+  The 100 tests take roughly 45 minutes on one Playwright worker in CI. Set
+  `E2E_TEST_DURATION_MS=0 E2E_TEST_CPU_SECONDS=0` to run at full speed locally.
+
+### Simulated load
+
+Unit tests model a realistic Vitest profile rather than pure sleep. Each spec file costs:
+
+| Phase               | Env var                 | Default | Scales with hardware |
+| ------------------- | ----------------------- | ------- | -------------------- |
+| Fixed-work CPU burn | `UNIT_TEST_CPU_SECONDS` | 5s      | yes                  |
+| Idle wait           | `UNIT_TEST_SLEEP_MS`    | 7300ms  | no                   |
+
+The two are interleaved across `UNIT_TEST_BLOCKS` (default 10) rounds of compute-then-sleep,
+which is closer to how a real Vitest run alternates between CPU work and waiting.
+
+There are 1,111 spec files at 12.3s each. They all belong to the `shop` project,
+so all of that time falls into the single `shop:test` task.
+
+The CPU half runs a fixed number of iterations (`tools/test-delay/burn.mjs`), not a
+fixed duration, so faster runners finish it sooner. That is what makes runner
+comparisons meaningful; a `setTimeout` would take the same wall time on any machine.
+The loop is a serial dependent integer chain with no allocation, so it tracks clock
+speed and multiply latency rather than allocator, memory bandwidth and GC.
+
+`UNITS_PER_SECOND` in `burn.mjs` is calibrated for one GitHub Actions vCPU. To
+re-calibrate, run this **on a runner** and paste in the result:
+
+```bash
+node tools/test-delay/calibrate.mjs
 ```
 
-## Run tasks
+By default Vitest runs one spec file at a time, the same as `cache-dte-bench`, so the burn
+genuinely gets one core. Set `UNIT_TEST_WORKERS=<n>` to run `n` spec files at once, e.g.
+`UNIT_TEST_WORKERS=4 npx nx test shop`. Set `UNIT_TEST_CPU_SECONDS=0
+UNIT_TEST_SLEEP_MS=0` to run unit tests at full speed locally.
+The generated features, components, utilities, app routes and e2e specs are produced by `tools/generate-shop.mjs`. Regenerate with:
 
-To build the library use:
-
-```sh
-npx nx run pkg1:build
+```bash
+node tools/generate-shop.mjs
 ```
 
-To run any task with Nx use:
+## 🚀 Quick Start
 
-```sh
-npx nx run <project-name>:<target>
+```bash
+# Clone the repository
+git clone <your-fork-url>
+cd <your-repository-name>
+
+# Install dependencies
+npm install
+
+# Serve the React shop application
+npx nx run shop:serve
+
+# Build all projects
+npx nx run-many -t build
+
+# Run tests
+npx nx run-many -t test
+
+# Lint all projects
+npx nx run-many -t lint
+
+# Run e2e tests
+npx nx run shop:e2e
+
+# Run tasks in parallel
+
+npx nx run-many -t lint test build e2e --parallel=3
+
+# Visualize the project graph
+npx nx graph
 ```
 
-These targets are either [inferred automatically](https://nx.dev/docs/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or defined in the `project.json` or `package.json` files.
+## ⭐ Featured Nx Capabilities
 
-[More about running tasks in the docs &raquo;](https://nx.dev/docs/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+This repository showcases several powerful Nx features:
 
-## Versioning and releasing
+### 1. 🎭 Playwright E2E Testing
 
-To version and release the library use
+End-to-end testing with Playwright is pre-configured:
 
-```
-npx nx release
-```
+```bash
+# Run e2e tests
+npx nx run shop:e2e
 
-Pass `--dry-run` to see what would happen without actually releasing the library.
-
-[Learn more about Nx release &raquo;](https://nx.dev/docs/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Keep TypeScript project references up to date
-
-Nx automatically updates TypeScript [project references](https://www.typescriptlang.org/docs/handbook/project-references.html) in `tsconfig.json` files to ensure they remain accurate based on your project dependencies (`import` or `require` statements). This sync is automatically done when running tasks such as `build` or `typecheck`, which require updated references to function correctly.
-
-To manually trigger the process to sync the project graph dependencies information to the TypeScript project references, run the following command:
-
-```sh
-npx nx sync
+# Run e2e tests in CI mode
+npx nx run shop:e2e-ci
 ```
 
-You can enforce that the TypeScript project references are always in the correct state when running in CI by adding a step to your CI job configuration that runs the following command:
+[Learn more about E2E testing →](https://nx.dev/docs/technologies/test-tools/playwright)
 
-```sh
-npx nx sync:check
+### 2. ⚡ Vitest for Unit Testing
+
+Fast unit testing with Vitest:
+
+```bash
+# Test the shop app (every spec under apps/shop/src)
+npx nx run shop:test
+
+# Test all projects
+npx nx run-many -t test
 ```
 
-[Learn more about nx sync](https://nx.dev/reference/nx-commands#sync)
+[Learn more about Vite testing →](https://nx.dev/docs/technologies/build-tools/vite)
 
-## Nx Cloud
+## 📁 Project Structure
 
-Nx Cloud ensures a [fast and scalable CI](https://nx.dev/nx-cloud?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) pipeline. It includes features such as:
-
-- [Remote caching](https://nx.dev/docs/features/ci-features/remote-cache?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task distribution across multiple machines](https://nx.dev/docs/features/ci-features/distribute-task-execution?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Automated e2e test splitting](https://nx.dev/docs/features/ci-features/split-e2e-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task flakiness detection and rerunning](https://nx.dev/docs/features/ci-features/flaky-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-### Set up CI (non-Github Actions CI)
-
-**Note:** This is only required if your CI provider is not GitHub Actions.
-
-Use the following command to configure a CI workflow for your workspace:
-
-```sh
-npx nx g ci-workflow
+```
+├── apps/
+│   └── shop/                  - React e-commerce app
+│       ├── e2e/               - Playwright specs
+│       └── src/
+│           ├── app/                    - App shell and routes
+│           ├── features/               - Feature pages (products, product-detail, 300 generated)
+│           ├── components/             - UI components (shared + 130 generated)
+│           ├── utils/                  - 70 generated utilities
+│           ├── hooks/                  - Data-fetching hooks
+│           ├── models/                 - Shared models
+│           └── test-utils/             - Testing utilities
+├── tools/                     - Generator and simulated-load helpers
+├── nx.json                    - Nx configuration
+├── tsconfig.json              - TypeScript configuration
+└── eslint.config.mjs          - ESLint configuration
 ```
 
-[Learn more about Nx on CI](https://nx.dev/docs/features/ci-features?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+## 📚 Useful Commands
+
+```bash
+# Project exploration
+npx nx graph                                    # Interactive dependency graph
+npx nx list                                     # List installed plugins
+npx nx show project shop --web                 # View project details
+
+# Development
+npx nx run shop:serve                              # Serve React app
+npx nx run shop:build                              # Build React app
+npx nx run shop:test                               # Test the shop app
+npx nx run shop:lint                               # Lint the shop app
+
+# Running multiple tasks
+npx nx run-many -t build                       # Build all projects
+npx nx run-many -t test --parallel=3          # Test in parallel
+npx nx run-many -t lint test build            # Run multiple targets
+
+# Affected commands (great for CI)
+npx nx affected -t build                       # Build only affected projects
+npx nx affected -t test                        # Test only affected projects
+```
+
+## 🎯 Adding New Features
+
+### Generate a new React application:
+
+```bash
+npx nx g @nx/react:app my-app
+```
+
+### Generate a new React component:
+
+```bash
+npx nx g @nx/react:component apps/shop/src/components/my-component
+```
+
+You can use `npx nx list` to see all available plugins and `npx nx list <plugin-name>` to see all generators for a specific plugin.
 
 ## Install Nx Console
 
@@ -94,9 +233,9 @@ Nx Console is an editor extension that enriches your developer experience. It le
 - [Nx Documentation](https://nx.dev/docs)
 - [Crafting Your Workspace Tutorial](https://nx.dev/docs/getting-started/tutorials/crafting-your-workspace)
 - [Module Boundaries](https://nx.dev/docs/features/enforce-module-boundaries)
-- [Releasing Packages](https://nx.dev/docs/features/manage-releases)
-- [Nx Plugins](https://nx.dev/docs/concepts/nx-plugins)
-- [Nx Cloud](https://nx.dev/nx-cloud)
+- [Playwright Testing](https://nx.dev/docs/technologies/test-tools/playwright)
+- [Vite](https://nx.dev/docs/technologies/build-tools/vite)
+- [Docker Integration](https://nx.dev/docs/guides/nx-release/release-docker-images)
 
 ## 💬 Community
 

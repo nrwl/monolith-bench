@@ -95,12 +95,12 @@ After reading the source, reconsider: Is this the right generator? If not, go ba
 >
 > ```bash
 > # ✅ Correct - directory is the full path for the library
-> nx g @nx/react:library --directory=libs/my-lib
-> # generates libs/my-lib/package.json and more
+> nx g @nx/react:library --directory=packages/my-lib
+> # generates packages/my-lib/package.json and more
 >
-> # ❌ Wrong - this will create files at libs and libs/src/...
+> # ❌ Wrong - this will create files at libs and packages/src/...
 > nx g @nx/react:library --name=my-lib --directory=libs
-> # generates libs/package.json and more
+> # generates packages/package.json and more
 > ```
 
 ### 5. Examine Existing Patterns
